@@ -1,0 +1,52 @@
+version: '5.1.3'
+
+services:
+  # 1. Order Service (Go) - Nhẹ nhất, cấp 32MB RAM
+  order-service:
+    build: ./mock-ecosystem/order-service-go
+    ports:
+      - "8081:8081"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 32M
+    networks:
+      - syslog-network
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # 2. Shipping Service (Python) - Cấp 64MB RAM
+  shipping-service:
+    build: ./mock-ecosystem/shipping-service-python
+    ports:
+      - "8082:8082"
+    deploy:
+      # Chạy 3 instances (giả lập scale up để đủ 10 services sau này)
+      replicas: 3
+      resources:
+        limits:
+          cpus: '0.15'
+          memory: 64M
+    networks:
+      - syslog-network
+
+  # 3. Auth Service (Java) - Cấp 128MB RAM
+  auth-service:
+    build: ./mock-ecosystem/auth-service-java
+    ports:
+      - "8083:8083"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.2'
+          memory: 128M
+    networks:
+      - syslog-network
+
+networks:
+  syslog-network:
+    driver: bridge
