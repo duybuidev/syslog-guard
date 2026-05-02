@@ -41,10 +41,11 @@ services:
 
   # 4. TRÁI TIM HỆ THỐNG: SysWatch Agent (Go)
   syswatch-agent:
-  build: ./syswatch-agent
-  volumes:
-    - /var/run/docker.sock:/var/run/docker.sock
-  restart: unless-stopped    networks:
+    build: ./syswatch-agent
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    restart: unless-stopped
+    networks:
       - syslog-network
 
 networks:
