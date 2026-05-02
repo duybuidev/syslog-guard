@@ -51,34 +51,45 @@ func sendDiscordAlert(message string) {
 	}
 }
 
-func checkCurrentState(client *http.Client) {
+func checkCurrentState(client *http.Client, expectedCount int) {
 	fmt.Println("🔍 Điểm danh hệ thống: Đang kiểm tra các container có sẵn...")
 
-	resp, err := client.Get("http://localhost/containers/json")
-	if err != nil {
-		log.Printf("Lỗi khi quét container: %v", err)
-		return
-	}
-	defer resp.Body.Close()
-
-	var containers []Container
-	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
-		log.Printf("Lỗi parse JSON: %v", err)
-		return
-	}
-
-	activeCount := len(containers)
-	fmt.Printf("✅ Tìm thấy %d containers đang hoạt động.\n", activeCount)
-
-	for _, c := range containers {
-		if len(c.Names) > 0 {
-			fmt.Printf("   - 🟢 Đang chạy: %s\n", c.Names[0][1:])
+	// Retry tối đa 30 lần, mỗi lần cách nhau 2 giây
+	for i := 0; i < 30; i++ {
+		resp, err := client.Get("http://localhost/containers/json")
+		if err != nil {
+			log.Printf("Lỗi khi quét container: %v", err)
+			time.Sleep(2 * time.Second)
+			continue
 		}
+
+		var containers []Container
+		json.NewDecoder(resp.Body).Decode(&containers)
+		resp.Body.Close()
+
+		activeCount := len(containers)
+		fmt.Printf("⏳ Lần %d: Tìm thấy %d containers...\n", i+1, activeCount)
+
+		// Chờ đủ số container mong đợi (không tính syswatch-agent)
+		if activeCount >= expectedCount {
+			fmt.Printf("✅ Đủ %d containers đang hoạt động!\n", activeCount)
+
+			for _, c := range containers {
+				if len(c.Names) > 0 {
+					fmt.Printf("   - 🟢 Đang chạy: %s\n", c.Names[0][1:])
+				}
+			}
+
+			discordMsg := fmt.Sprintf("🛡️ **SysWatch Agent Bootup!**\n✅ Hệ thống hiện đang có **%d** containers hoạt động bình thường.", activeCount)
+			sendDiscordAlert(discordMsg)
+			fmt.Println("---------------------------------------------------")
+			return
+		}
+
+		time.Sleep(2 * time.Second)
 	}
 
-	discordMsg := fmt.Sprintf("🛡️ **SysWatch Agent Bootup!**\n✅ Hệ thống hiện đang có **%d** containers hoạt động bình thường.", activeCount)
-	sendDiscordAlert(discordMsg)
-	fmt.Println("---------------------------------------------------")
+	log.Println("⚠️ Timeout: Không đủ container sau 60 giây")
 }
 
 func listenEvents(client *http.Client) {
@@ -124,7 +135,9 @@ func main() {
 
 	client := newDockerClient()
 
-	checkCurrentState(client)
+	// Truyền số container mong đợi (không tính syswatch-agent)
+	// order(1) + shipping(3) + auth(1) = 5
+	checkCurrentState(client, 5)
 
 	fmt.Println("📡 Listening for NEW container events in real-time...\n")
 
