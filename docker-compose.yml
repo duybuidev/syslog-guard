@@ -23,9 +23,8 @@ services:
   shipping-service:
     build: ./mock-ecosystem/shipping-service-python
     ports:
-      - "8082:8082"
+      - "8091-8093:8082"  # <-- Sửa dòng này: Cấp dải cổng từ 8082 đến 8084
     deploy:
-      # Chạy 3 instances (giả lập scale up để đủ 10 services sau này)
       replicas: 3
       resources:
         limits:
