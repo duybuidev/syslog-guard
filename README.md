@@ -9,3 +9,11 @@ SysLog-Guard (Distributed System)
 │   └── Container Monitor & Alerting Engine (Go)
 └── 3. Storage & Analytics (WIP)
     └── Redis + Elasticsearch + Kibana
+```
+
+
+TECHSTACK
+1. GO
+2. FastAPI
+3. Python
+4. Docker
