@@ -1,28 +1,48 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"time"
-
-	"github.com/moby/moby/client"
-	"github.com/moby/moby/api/types/events"
 )
 
 const discordWebhookURL = "https://discord.com/api/webhooks/1499298659228192798/OhRYIYPLvgRlr9Bt86r7nez__mOFOsG7VCUYQztmzzVlFQ7eYuHH20c-_jXXedabMbJh"
+
+// Docker API structs
+type Container struct {
+	Names []string `json:"Names"`
+}
+
+type DockerEvent struct {
+	Type   string `json:"Type"`
+	Action string `json:"Action"`
+	Actor  struct {
+		Attributes map[string]string `json:"Attributes"`
+	} `json:"Actor"`
+}
 
 type DiscordPayload struct {
 	Content string `json:"content"`
 }
 
-func sendDiscordAlert(message string) {
-	if discordWebhookURL == "https://discord.com/api/webhooks/xxxx/yyyy" {
-		return
+// HTTP client giao tiếp qua Unix socket
+func newDockerClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+				return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/docker.sock")
+			},
+		},
 	}
+}
+
+func sendDiscordAlert(message string) {
 	payload := DiscordPayload{Content: message}
 	jsonValue, _ := json.Marshal(payload)
 	resp, err := http.Post(discordWebhookURL, "application/json", bytes.NewBuffer(jsonValue))
@@ -31,64 +51,82 @@ func sendDiscordAlert(message string) {
 	}
 }
 
-func checkCurrentState(cli *client.Client) {
+func checkCurrentState(client *http.Client) {
 	fmt.Println("🔍 Điểm danh hệ thống: Đang kiểm tra các container có sẵn...")
 
-	// API mới: ContainerList trả về ContainerListResult thay vì []container.Summary
-	result, err := cli.ContainerList(context.Background(), client.ContainerListOptions{})
+	resp, err := client.Get("http://localhost/containers/json")
 	if err != nil {
 		log.Printf("Lỗi khi quét container: %v", err)
 		return
 	}
+	defer resp.Body.Close()
 
-	containers := result.Items
+	var containers []Container
+	if err := json.NewDecoder(resp.Body).Decode(&containers); err != nil {
+		log.Printf("Lỗi parse JSON: %v", err)
+		return
+	}
+
 	activeCount := len(containers)
 	fmt.Printf("✅ Tìm thấy %d containers đang hoạt động.\n", activeCount)
 
-	discordMsg := fmt.Sprintf("🛡️ **SysWatch Agent Bootup!**\n✅ Hệ thống hiện đang có **%d** containers hoạt động bình thường.", activeCount)
-
 	for _, c := range containers {
-		fmt.Printf("   - 🟢 Đang chạy: %s\n", c.Names[0][1:])
+		if len(c.Names) > 0 {
+			fmt.Printf("   - 🟢 Đang chạy: %s\n", c.Names[0][1:])
+		}
 	}
 
+	discordMsg := fmt.Sprintf("🛡️ **SysWatch Agent Bootup!**\n✅ Hệ thống hiện đang có **%d** containers hoạt động bình thường.", activeCount)
 	sendDiscordAlert(discordMsg)
 	fmt.Println("---------------------------------------------------")
+}
+
+func listenEvents(client *http.Client) {
+	resp, err := client.Get("http://localhost/events")
+	if err != nil {
+		log.Fatalf("Không thể kết nối Docker events: %v", err)
+	}
+	defer resp.Body.Close()
+
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+
+		var event DockerEvent
+		if err := json.Unmarshal(line, &event); err != nil {
+			continue
+		}
+
+		if event.Type != "container" {
+			continue
+		}
+
+		name := event.Actor.Attributes["name"]
+		timestamp := time.Now().Format("15:04:05")
+
+		switch event.Action {
+		case "start":
+			fmt.Printf("🟢 [%s] Container %s STARTED.\n", timestamp, name)
+			sendDiscordAlert(fmt.Sprintf("🟢 **[STARTED]** Container `%s` is up!", name))
+		case "die":
+			exitCode := event.Actor.Attributes["exitCode"]
+			fmt.Printf("🚨 [%s] Container %s CRASHED! (Code: %s)\n", timestamp, name, exitCode)
+			sendDiscordAlert(fmt.Sprintf("🚨 **[CRASHED]** Container `%s` has DIED! (Exit: %s)", name, exitCode))
+		}
+	}
 }
 
 func main() {
 	fmt.Println("🛡️ SysWatch Agent starting...")
 
-	// API mới: dùng client.New() thay vì client.NewClientWithOpts()
-	cli, err := client.New(client.FromEnv)
-	if err != nil {
-		log.Fatalf("Fatal: Cannot connect to Docker daemon: %v", err)
-	}
-	defer cli.Close()
+	client := newDockerClient()
 
-	checkCurrentState(cli)
+	checkCurrentState(client)
 
 	fmt.Println("📡 Listening for NEW container events in real-time...\n")
 
-	ctx := context.Background()
-	// API mới: dùng client.EventsOptions thay vì types.EventsOptions
-	result, errs := cli.Events(ctx, client.EventsOptions{})
-
-	for {
-		select {
-		case err := <-errs:
-			log.Printf("Error from Docker events: %v\n", err)
-		case msg := <-result.Items:
-			if msg.Type == events.ContainerEventType && msg.Action == "start" {
-				name := msg.Actor.Attributes["name"]
-				fmt.Printf("🟢 [%s] Container %s STARTED.\n", time.Now().Format("15:04:05"), name)
-				sendDiscordAlert(fmt.Sprintf("🟢 **[STARTED]** Container `%s` is up!", name))
-			}
-			if msg.Type == events.ContainerEventType && msg.Action == "die" {
-				name := msg.Actor.Attributes["name"]
-				exitCode := msg.Actor.Attributes["exitCode"]
-				fmt.Printf("🚨 [%s] Container %s CRASHED! (Code: %s)\n", time.Now().Format("15:04:05"), name, exitCode)
-				sendDiscordAlert(fmt.Sprintf("🚨 **[CRASHED]** Container `%s` has DIED! (Exit: %s)", name, exitCode))
-			}
-		}
-	}
+	listenEvents(client)
 }
