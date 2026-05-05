@@ -1,5 +1,4 @@
 services:
-  # 1. Order Service (Go)
   order-service:
     build: ./mock-ecosystem/order-service-go
     ports:
@@ -12,7 +11,6 @@ services:
     networks:
       - syslog-network
 
-  # 2. Shipping Service (FastAPI)
   shipping-service:
     build: ./mock-ecosystem/shipping-service-python
     ports:
@@ -26,7 +24,6 @@ services:
     networks:
       - syslog-network
 
-  # 3. Auth Service (Java)
   auth-service:
     build: ./mock-ecosystem/auth-service-java
     ports:
@@ -39,12 +36,16 @@ services:
     networks:
       - syslog-network
 
-  # 4. TRÁI TIM HỆ THỐNG: SysWatch Agent (Go)
   syswatch-agent:
     build: ./syswatch-agent
     volumes:
-      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.1'
+          memory: 32M
     networks:
       - syslog-network
 

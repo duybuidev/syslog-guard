@@ -6,7 +6,7 @@ import java.net.InetSocketAddress;
 public class AuthService {
     public static void main(String[] args) throws IOException {
         HttpServer server = HttpServer.create(new InetSocketAddress(8083), 0);
-        
+
         server.createContext("/health", exchange -> {
             String resp = "Auth Service is healthy";
             exchange.sendResponseHeaders(200, resp.length());

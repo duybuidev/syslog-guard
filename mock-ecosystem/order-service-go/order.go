@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	log.SetOutput(os.Stdout) // Ghi log ra Stdout để Docker thu thập
+	log.SetOutput(os.Stdout)
 
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -22,7 +22,6 @@ func main() {
 		w.Write([]byte(fmt.Sprintf("Order %d created", orderID)))
 	})
 
-	// API này dùng để "bắn sập" container, test SysWatch
 	http.HandleFunc("/crash", func(w http.ResponseWriter, r *http.Request) {
 		log.Println("[FATAL] Out of memory simulation. Crashing...")
 		os.Exit(1)
